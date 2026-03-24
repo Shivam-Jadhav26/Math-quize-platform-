@@ -12,7 +12,7 @@ dotenv.config();
 
 const app = express();
 
-async function setupApp() {
+async function startServer() {
   // MongoDB Connection
   const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/quiz-platform";
   if (mongoose.connection.readyState === 0) {
@@ -43,15 +43,15 @@ async function setupApp() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-}
 
-setupApp();
-
-if (process.env.NODE_ENV !== "production") {
+  // Always listen on port 3000 in AI Studio environment
+  // Vercel handles the listening automatically when the app is exported
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+
+startServer();
 
 export default app;
