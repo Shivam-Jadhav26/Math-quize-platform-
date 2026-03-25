@@ -1,7 +1,7 @@
 export const CHAPTERS = [
   "Linear Equations in Two Variables",
   "Quadratic Equations",
-  "Arithmetic Progression (A.P.)",
+  "Arithmetic Progression",
   "Financial Planning",
   "Probability",
   "Statistics",
@@ -9,10 +9,9 @@ export const CHAPTERS = [
   "Pythagoras Theorem",
   "Circle",
   "Geometric Constructions",
-  "Coordinate Geometry",
+  "Co-ordinate Geometry",
   "Trigonometry",
   "Mensuration"
 ];
 
 export const DIFFICULTIES = ["Easy", "Medium", "Hard"];
-export const QUESTION_COUNTS = [10, 20, 30, 40, 50];

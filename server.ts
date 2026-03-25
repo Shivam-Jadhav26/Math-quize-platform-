@@ -12,46 +12,71 @@ dotenv.config();
 
 const app = express();
 
-async function startServer() {
-  // MongoDB Connection
-  const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/quiz-platform";
-  if (mongoose.connection.readyState === 0) {
-    mongoose.connect(MONGODB_URI)
-      .then(() => console.log("Connected to MongoDB"))
-      .catch((err) => console.error("MongoDB connection error:", err));
+// MongoDB Connection with caching for serverless
+let isConnected = false;
+async function connectToDatabase() {
+  if (isConnected && mongoose.connection.readyState === 1) return;
+  
+  const MONGODB_URI = process.env.MONGODB_URI;
+  if (!MONGODB_URI) {
+    console.warn("MONGODB_URI not found in environment variables. Using default.");
   }
+  
+  const uri = MONGODB_URI || "mongodb://localhost:27017/quiz-platform";
+  
+  try {
+    await mongoose.connect(uri);
+    isConnected = true;
+    console.log("Connected to MongoDB");
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+  }
+}
 
-  app.use(cors());
-  app.use(express.json());
+// Middleware to ensure DB connection for every request
+app.use(async (req, res, next) => {
+  if (req.path.startsWith("/api")) {
+    await connectToDatabase();
+  }
+  next();
+});
 
-  // API Routes
-  app.use("/api/auth", authRoutes);
-  app.use("/api/quiz", quizRoutes);
-  app.use("/api/user", userRoutes);
+app.use(cors());
+app.use(express.json());
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/quiz", quizRoutes);
+app.use("/api/user", userRoutes);
+
+// Vite middleware for development
+if (process.env.NODE_ENV !== "production") {
+  const setupVite = async () => {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
+  };
+  setupVite();
 
-  // Always listen on port 3000 in AI Studio environment
-  // Vercel handles the listening automatically when the app is exported
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+} else {
+  // In production (e.g., Vercel), we serve static files if needed,
+  // but Vercel usually handles this via its own routing.
+  const distPath = path.join(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  
+  // Only add catch-all if not handled by Vercel's vercel.json
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, "index.html"));
+  });
 }
-
-startServer();
 
 export default app;

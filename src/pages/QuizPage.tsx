@@ -1,285 +1,233 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle,
-  Loader2,
-  BrainCircuit
-} from "lucide-react";
-import { api } from "../lib/api";
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Question, User } from "../types";
+import { generateQuiz } from "../services/geminiService";
+import { CheckCircle2, XCircle, ArrowRight, Loader2, Award, Home } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { GoogleGenAI, Type } from "@google/genai";
+import confetti from "canvas-confetti";
 
-export default function QuizPage() {
-  const location = useLocation();
+interface QuizPageProps {
+  user: User;
+}
+
+export default function QuizPage({ user }: QuizPageProps) {
+  const { chapter, difficulty } = useParams<{ chapter: string; difficulty: string }>();
   const navigate = useNavigate();
-  const { chapter, difficulty, count } = location.state || {};
-
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [answers, setAnswers] = useState<number[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const timerRef = useRef<any>(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [isAnswered, setIsAnswered] = useState(false);
+  const [score, setScore] = useState(0);
+  const [quizComplete, setQuizComplete] = useState(false);
 
   useEffect(() => {
-    if (!chapter) {
-      navigate("/quiz-setup");
-      return;
-    }
-
-    const generateQuizAI = async () => {
-      try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-        const model = "gemini-3-flash-preview";
-        const prompt = `Generate a Mathematics quiz for Maharashtra State Board Class 10 (SSC). 
-        Chapter: ${chapter}
-        Difficulty: ${difficulty}
-        Number of Questions: ${count}
-        
-        Requirements:
-        - Strictly follow the Maharashtra SSC syllabus.
-        - Questions should be multiple choice (MCQ).
-        - Return a JSON array of objects.
-        - Each object must have:
-          - question: string
-          - options: array of 4 strings
-          - correctAnswer: number (0-3 index)
-          - explanation: string (short explanation)
-        
-        Ensure the questions are accurate and relevant to the board exams.`;
-
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  question: { type: Type.STRING },
-                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  correctAnswer: { type: Type.INTEGER },
-                  explanation: { type: Type.STRING },
-                },
-                required: ["question", "options", "correctAnswer", "explanation"],
-              },
-            },
-          },
-        });
-
-        const quizData = JSON.parse(response.text || "[]");
-        
-        if (!Array.isArray(quizData) || quizData.length === 0) {
-          throw new Error("Invalid AI response");
-        }
-
-        setQuestions(quizData);
-        setAnswers(new Array(quizData.length).fill(-1));
-        setTimeLeft(quizData.length * 90); // 1.5 minutes per question
+    const fetchQuiz = async () => {
+      if (chapter && difficulty) {
+        const quizQuestions = await generateQuiz(chapter, difficulty);
+        setQuestions(quizQuestions);
         setLoading(false);
-      } catch (err) {
-        console.error("Quiz generation error:", err);
-        alert("Failed to generate quiz. Please try again.");
-        navigate("/quiz-setup");
       }
     };
+    fetchQuiz();
+  }, [chapter, difficulty]);
 
-    generateQuizAI();
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [chapter, difficulty, count, navigate]);
-
-  useEffect(() => {
-    if (!loading && timeLeft > 0 && !isSubmitting) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            handleSubmit();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [loading, timeLeft, isSubmitting]);
-
-  const handleAnswer = (optionIdx: number) => {
-    const newAnswers = [...answers];
-    newAnswers[currentIdx] = optionIdx;
-    setAnswers(newAnswers);
+  const handleOptionSelect = (index: number) => {
+    if (isAnswered) return;
+    setSelectedOption(index);
   };
 
-  const handleSubmit = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    
-    let score = 0;
-    questions.forEach((q, i) => {
-      if (answers[i] === q.correctAnswer) score++;
-    });
+  const handleCheckAnswer = () => {
+    if (selectedOption === null) return;
+    setIsAnswered(true);
+    if (selectedOption === questions[currentQuestionIndex].correctAnswer) {
+      setScore((prev) => prev + 1);
+    }
+  };
 
-    try {
-      await api.quiz.submit({
-        score,
+  const handleNextQuestion = () => {
+    if (currentQuestionIndex < questions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+      setSelectedOption(null);
+      setIsAnswered(false);
+    } else {
+      setQuizComplete(true);
+      
+      // Calculate final score correctly (including the last question)
+      const finalScore = selectedOption === questions[currentQuestionIndex].correctAnswer ? score + 1 : score;
+      
+      // Save result
+      const newResult = {
+        id: Date.now().toString(),
+        userId: user.id,
+        score: finalScore,
         totalQuestions: questions.length,
-        chapter,
-        difficulty
-      });
-      navigate("/result", { state: { score, questions, answers, chapter, difficulty } });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to submit quiz. Please try again.");
-      setIsSubmitting(false);
-    }
-  };
+        chapter: chapter || "",
+        difficulty: difficulty || "",
+        timestamp: new Date().toISOString()
+      };
+      
+      const existingResults = JSON.parse(localStorage.getItem("quizResults") || "[]");
+      localStorage.setItem("quizResults", JSON.stringify([newResult, ...existingResults]));
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+      if (finalScore >= questions.length * 0.8) {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ["#4f46e5", "#818cf8", "#c7d2fe"]
+        });
+      }
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-          className="mb-6"
-        >
-          <BrainCircuit className="w-16 h-16 text-indigo-600" />
-        </motion.div>
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">AI is Generating Your Quiz...</h2>
-        <p className="text-slate-500">Creating unique questions for {chapter}</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+        <p className="text-gray-500 font-medium animate-pulse">AI is generating your custom quiz...</p>
       </div>
     );
   }
 
-  if (!questions || questions.length === 0) {
+  if (quizComplete) {
     return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-        <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">No Questions Found</h2>
-        <p className="text-slate-500 mb-6">We couldn't generate questions for this chapter. Please try again.</p>
-        <button 
-          onClick={() => navigate("/quiz-setup")}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold"
-        >
-          Go Back
-        </button>
-      </div>
-    );
-  }
-
-  const currentQuestion = questions[currentIdx];
-  const progress = ((currentIdx + 1) / questions.length) * 100;
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 font-bold">
-            {currentIdx + 1}
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-800 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chapter}</h3>
-            <p className="text-xs text-slate-400">{difficulty} • {questions.length} Questions</p>
-          </div>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="max-w-md mx-auto bg-white p-10 rounded-3xl shadow-xl border border-gray-100 text-center space-y-8"
+      >
+        <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto">
+          <Award className="w-12 h-12 text-indigo-600" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-3xl font-bold text-gray-900">Quiz Complete!</h2>
+          <p className="text-gray-500">Great job on finishing the quiz.</p>
         </div>
         
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono font-bold ${timeLeft < 60 ? "bg-red-50 text-red-600 animate-pulse" : "bg-slate-50 text-slate-700"}`}>
-          <Clock className="w-4 h-4" />
-          {formatTime(timeLeft)}
+        <div className="bg-gray-50 p-6 rounded-2xl">
+          <p className="text-sm text-gray-400 uppercase font-bold tracking-widest mb-1">Final Score</p>
+          <p className="text-5xl font-black text-indigo-600">{score} / {questions.length}</p>
+          <p className="text-sm text-gray-500 mt-2">
+            {score === questions.length ? "Perfect Score! 🌟" : score >= questions.length * 0.8 ? "Excellent Work! 👏" : "Keep Practicing! 💪"}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => navigate("/")}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+          >
+            <Home className="w-5 h-5" />
+            Back to Dashboard
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  const currentQuestion = questions[currentQuestionIndex];
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-8">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <h1 className="text-lg font-bold text-gray-900">{chapter}</h1>
+          <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">{difficulty} Difficulty</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-bold text-indigo-600">Question {currentQuestionIndex + 1} of {questions.length}</p>
+          <div className="w-32 h-2 bg-gray-100 rounded-full mt-1 overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 transition-all duration-500"
+              style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="h-2 bg-slate-100 rounded-full mb-8 overflow-hidden">
-        <motion.div 
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          className="h-full bg-indigo-600"
-        />
-      </div>
+      <motion.div
+        key={currentQuestionIndex}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-8"
+      >
+        <h2 className="text-xl font-bold text-gray-900 leading-relaxed">
+          {currentQuestion.question}
+        </h2>
 
-      {/* Question Card */}
-      <AnimatePresence mode="wait">
-        <motion.div 
-          key={currentIdx}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 mb-8"
-        >
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-800 mb-8 leading-relaxed">
-            {currentQuestion.question}
-          </h2>
+        <div className="grid gap-4">
+          {currentQuestion.options.map((option, index) => {
+            let bgColor = "bg-gray-50 hover:bg-gray-100 border-gray-100";
+            let textColor = "text-gray-700";
+            let icon = null;
 
-          <div className="grid gap-4">
-            {currentQuestion.options.map((option: string, i: number) => (
+            if (selectedOption === index) {
+              bgColor = "bg-indigo-50 border-indigo-200 ring-2 ring-indigo-500";
+              textColor = "text-indigo-900";
+            }
+
+            if (isAnswered) {
+              if (index === currentQuestion.correctAnswer) {
+                bgColor = "bg-emerald-50 border-emerald-200 ring-2 ring-emerald-500";
+                textColor = "text-emerald-900";
+                icon = <CheckCircle2 className="w-5 h-5 text-emerald-600" />;
+              } else if (selectedOption === index) {
+                bgColor = "bg-red-50 border-red-200 ring-2 ring-red-500";
+                textColor = "text-red-900";
+                icon = <XCircle className="w-5 h-5 text-red-600" />;
+              }
+            }
+
+            return (
               <button
-                key={i}
-                onClick={() => handleAnswer(i)}
-                className={`p-5 rounded-2xl text-left font-semibold transition-all border-2 flex items-center justify-between group ${
-                  answers[currentIdx] === i 
-                    ? "bg-indigo-50 border-indigo-600 text-indigo-700" 
-                    : "bg-white border-slate-100 hover:border-indigo-200 text-slate-600"
-                }`}
+                key={index}
+                onClick={() => handleOptionSelect(index)}
+                disabled={isAnswered}
+                className={`w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between group ${bgColor}`}
               >
-                <span>{option}</span>
-                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                  answers[currentIdx] === i ? "border-indigo-600 bg-indigo-600" : "border-slate-200 group-hover:border-indigo-300"
-                }`}>
-                  {answers[currentIdx] === i && <CheckCircle2 className="w-4 h-4 text-white" />}
-                </div>
+                <span className={`font-medium ${textColor}`}>{option}</span>
+                {icon}
               </button>
-            ))}
-          </div>
-        </motion.div>
-      </AnimatePresence>
+            );
+          })}
+        </div>
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between">
-        <button
-          disabled={currentIdx === 0}
-          onClick={() => setCurrentIdx(prev => prev - 1)}
-          className="flex items-center gap-2 px-6 py-3 font-bold text-slate-500 hover:text-indigo-600 disabled:opacity-30 transition-colors"
-        >
-          <ChevronLeft className="w-5 h-5" />
-          Previous
-        </button>
+        <AnimatePresence>
+          {isAnswered && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-6 bg-indigo-50 rounded-2xl space-y-2"
+            >
+              <p className="text-sm font-bold text-indigo-900">Explanation</p>
+              <p className="text-sm text-indigo-700 leading-relaxed">
+                {currentQuestion.explanation}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {currentIdx === questions.length - 1 ? (
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
-          >
-            {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Submit Quiz"}
-          </button>
-        ) : (
-          <button
-            onClick={() => setCurrentIdx(prev => prev + 1)}
-            className="flex items-center gap-2 px-8 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm"
-          >
-            Next
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        )}
-      </div>
+        <div className="pt-4">
+          {!isAnswered ? (
+            <button
+              onClick={handleCheckAnswer}
+              disabled={selectedOption === null}
+              className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100"
+            >
+              Check Answer
+            </button>
+          ) : (
+            <button
+              onClick={handleNextQuestion}
+              className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all flex items-center justify-center gap-2"
+            >
+              {currentQuestionIndex < questions.length - 1 ? "Next Question" : "Finish Quiz"}
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }

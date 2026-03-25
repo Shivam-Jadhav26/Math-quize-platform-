@@ -1,53 +1,34 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import Navbar from "./components/Navbar";
-import Home from "./pages/Home";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import QuizSetup from "./pages/QuizSetup";
 import QuizPage from "./pages/QuizPage";
-import Result from "./pages/Result";
+import AuthPage from "./pages/AuthPage";
+import Navbar from "./components/Navbar";
+import { User } from "./types";
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
     }
     setLoading(false);
   }, []);
-
-  const login = (userData: any, token: string) => {
-    localStorage.setItem("user", JSON.stringify(userData));
-    localStorage.setItem("token", token);
-    setUser(userData);
-  };
-
-  const logout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-    setUser(null);
-  };
 
   if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
   return (
     <Router>
-      <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-        <Navbar user={user} logout={logout} />
+      <div className="min-h-screen bg-gray-50">
+        <Navbar user={user} setUser={setUser} />
         <main className="container mx-auto px-4 py-8">
           <Routes>
-            <Route path="/" element={<Home user={user} />} />
-            <Route path="/login" element={!user ? <Login onLogin={login} /> : <Navigate to="/dashboard" />} />
-            <Route path="/register" element={!user ? <Register onLogin={login} /> : <Navigate to="/dashboard" />} />
-            <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-            <Route path="/quiz-setup" element={user ? <QuizSetup /> : <Navigate to="/login" />} />
-            <Route path="/quiz" element={user ? <QuizPage /> : <Navigate to="/login" />} />
-            <Route path="/result" element={user ? <Result /> : <Navigate to="/login" />} />
+            <Route path="/auth" element={!user ? <AuthPage setUser={setUser} /> : <Navigate to="/" />} />
+            <Route path="/" element={user ? <Dashboard user={user} /> : <Navigate to="/auth" />} />
+            <Route path="/quiz/:chapter/:difficulty" element={user ? <QuizPage user={user} /> : <Navigate to="/auth" />} />
           </Routes>
         </main>
       </div>

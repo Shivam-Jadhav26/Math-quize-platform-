@@ -1,238 +1,157 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { 
-  Trophy, 
-  Target, 
-  History, 
-  AlertTriangle, 
-  TrendingUp, 
-  BookOpen, 
-  ChevronRight,
-  Clock
-} from "lucide-react";
-import { 
-  Chart as ChartJS, 
-  CategoryScale, 
-  LinearScale, 
-  PointElement, 
-  LineElement, 
-  Title, 
-  Tooltip as ChartTooltip, 
-  Legend,
-  Filler
-} from "chart.js";
-import { Line } from "react-chartjs-2";
-import { api } from "../lib/api";
+import { User, QuizResult } from "../types";
+import { CHAPTERS, DIFFICULTIES } from "../constants";
+import { useNavigate } from "react-router-dom";
+import { Play, TrendingUp, Award, Clock } from "lucide-react";
 import { motion } from "motion/react";
+import QuizHistory from "../components/QuizHistory";
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  ChartTooltip,
-  Legend,
-  Filler
-);
+interface DashboardProps {
+  user: User;
+}
 
-export default function Dashboard() {
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export default function Dashboard({ user }: DashboardProps) {
+  const navigate = useNavigate();
+  const [selectedChapter, setSelectedChapter] = useState(CHAPTERS[0]);
+  const [selectedDifficulty, setSelectedDifficulty] = useState(DIFFICULTIES[0]);
+  const [results, setResults] = useState<QuizResult[]>([]);
 
   useEffect(() => {
-    api.user.getPerformance()
-      .then(data => {
-        setStats(data);
-        setLoading(false);
-      })
-      .catch(err => console.error(err));
-  }, []);
+    const storedResults = localStorage.getItem("quizResults");
+    if (storedResults) {
+      setResults(JSON.parse(storedResults));
+    } else {
+      // Mock some initial results
+      const mockResults: QuizResult[] = [
+        { id: "1", userId: user.id, score: 4, totalQuestions: 5, chapter: "Linear Equations in Two Variables", difficulty: "Medium", timestamp: new Date(Date.now() - 86400000).toISOString() },
+        { id: "2", userId: user.id, score: 3, totalQuestions: 5, chapter: "Quadratic Equations", difficulty: "Hard", timestamp: new Date(Date.now() - 172800000).toISOString() },
+      ];
+      setResults(mockResults);
+      localStorage.setItem("quizResults", JSON.stringify(mockResults));
+    }
+  }, [user.id]);
 
-  if (loading) return <div className="flex items-center justify-center h-64">Loading Dashboard...</div>;
-
-  const chartData = {
-    labels: stats.chartData.map((d: any) => d.date),
-    datasets: [
-      {
-        label: "Score (%)",
-        data: stats.chartData.map((d: any) => d.score),
-        borderColor: "#4f46e5",
-        backgroundColor: "rgba(79, 70, 229, 0.1)",
-        borderWidth: 3,
-        pointBackgroundColor: "#4f46e5",
-        pointBorderColor: "#fff",
-        pointBorderWidth: 2,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        fill: true,
-        tension: 0.4,
-      },
-    ],
+  const startQuiz = () => {
+    navigate(`/quiz/${encodeURIComponent(selectedChapter)}/${selectedDifficulty}`);
   };
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: "#1e293b",
-        padding: 12,
-        titleFont: { size: 14, weight: "bold" as const },
-        bodyFont: { size: 13 },
-        cornerRadius: 12,
-        displayColors: false,
-      },
-    },
-    scales: {
-      x: {
-        grid: { display: false },
-        ticks: { color: "#94a3b8", font: { size: 12 } },
-      },
-      y: {
-        min: 0,
-        max: 100,
-        grid: { color: "#f1f5f9" },
-        ticks: { color: "#94a3b8", font: { size: 12 }, stepSize: 20 },
-      },
-    },
-  };
+  const averageScore = results.length > 0 
+    ? Math.round((results.reduce((acc, r) => acc + (r.score / r.totalQuestions), 0) / results.length) * 100)
+    : 0;
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
+    <div className="max-w-4xl mx-auto space-y-8">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Student Dashboard</h1>
-          <p className="text-slate-500">Track your progress and excel in Mathematics</p>
+          <h1 className="text-3xl font-bold text-gray-900">Welcome back, {user.name}!</h1>
+          <p className="text-gray-500">Ready to master Class 10 Mathematics?</p>
         </div>
-        <Link to="/quiz-setup" className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2">
-          <BookOpen className="w-5 h-5" />
-          Start New Quiz
-        </Link>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {[
-          { label: "Quizzes Attempted", value: stats.totalQuizzes, icon: <History />, color: "bg-blue-50 text-blue-600" },
-          { label: "Average Score", value: `${stats.avgScore}%`, icon: <Target />, color: "bg-green-50 text-green-600" },
-          { label: "Weak Chapters", value: stats.weakChapters.length, icon: <AlertTriangle />, color: "bg-amber-50 text-amber-600" },
-          { label: "Best Score", value: stats.history.length > 0 ? `${Math.max(...stats.history.map((h: any) => Math.round((h.score / h.totalQuestions) * 100)))}%` : "0%", icon: <Trophy />, color: "bg-indigo-50 text-indigo-600" }
-        ].map((stat, i) => (
-          <motion.div 
-            key={i}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"
-          >
-            <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center mb-4`}>
-              {React.cloneElement(stat.icon as React.ReactElement, { className: "w-6 h-6" })}
-            </div>
-            <p className="text-sm font-medium text-slate-500 mb-1">{stat.label}</p>
-            <h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-8">
-        {/* Performance Graph */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 rounded-lg">
               <TrendingUp className="w-5 h-5 text-indigo-600" />
-              Performance Trend
-            </h3>
-            <span className="text-xs text-slate-500 font-medium">Last 7 Quizzes</span>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Average Score</p>
+              <p className="text-lg font-bold text-gray-900">{averageScore}%</p>
+            </div>
           </div>
-          <div className="h-64 w-full">
-            {stats.chartData.length > 0 ? (
-              <Line data={chartData} options={chartOptions} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 italic">No data available yet. Start a quiz!</div>
-            )}
-          </div>
-        </div>
-
-        {/* Weak Chapters */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-            Focus Areas
-          </h3>
-          <div className="space-y-4">
-            {stats.weakChapters.length > 0 ? stats.weakChapters.map((chapter: string, i: number) => (
-              <div key={i} className="p-4 bg-amber-50 rounded-xl border border-amber-100">
-                <p className="text-sm font-bold text-amber-800 mb-1">{chapter}</p>
-                <div className="flex items-center justify-between text-xs text-amber-600">
-                  <span>Needs Improvement</span>
-                  <Link to="/quiz-setup" className="font-bold hover:underline flex items-center gap-1">
-                    Practice <ChevronRight className="w-3 h-3" />
-                  </Link>
-                </div>
-              </div>
-            )) : (
-              <div className="text-center py-8">
-                <div className="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Target className="w-6 h-6" />
-                </div>
-                <p className="text-sm text-slate-500">Great job! No weak chapters identified yet.</p>
-              </div>
-            )}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+            <div className="p-2 bg-amber-50 rounded-lg">
+              <Award className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Quizzes Done</p>
+              <p className="text-lg font-bold text-gray-900">{results.length}</p>
+            </div>
           </div>
         </div>
+      </header>
 
-        {/* Recent History */}
-        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <History className="w-5 h-5 text-indigo-600" />
-            Recent Quiz History
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-100 text-slate-400 text-sm font-medium">
-                  <th className="pb-4 pl-2">Chapter</th>
-                  <th className="pb-4">Difficulty</th>
-                  <th className="pb-4">Score</th>
-                  <th className="pb-4">Date</th>
-                  <th className="pb-4 text-right pr-2">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {stats.history.map((quiz: any, i: number) => (
-                  <tr key={i} className="group hover:bg-slate-50 transition-colors">
-                    <td className="py-4 pl-2 font-semibold text-slate-700">{quiz.chapter}</td>
-                    <td className="py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                        quiz.difficulty === "Easy" ? "bg-green-100 text-green-700" :
-                        quiz.difficulty === "Medium" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"
-                      }`}>
-                        {quiz.difficulty}
-                      </span>
-                    </td>
-                    <td className="py-4">
-                      <span className="font-bold text-slate-900">{quiz.score}</span>
-                      <span className="text-slate-400 text-sm"> / {quiz.totalQuestions}</span>
-                    </td>
-                    <td className="py-4 text-slate-500 text-sm flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {new Date(quiz.date).toLocaleDateString()}
-                    </td>
-                    <td className="py-4 text-right pr-2">
-                      <button className="text-indigo-600 font-bold text-sm hover:underline">Details</button>
-                    </td>
-                  </tr>
-                ))}
-                {stats.history.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-12 text-center text-slate-400 italic">No quizzes attempted yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      <div className="grid md:grid-cols-3 gap-8">
+        <div className="md:col-span-2 space-y-6">
+          <section className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Play className="w-5 h-5 text-indigo-600" />
+              Start a New Quiz
+            </h2>
+            
+            <div className="grid sm:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Select Chapter</label>
+                <select
+                  value={selectedChapter}
+                  onChange={(e) => setSelectedChapter(e.target.value)}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                  {CHAPTERS.map((chapter) => (
+                    <option key={chapter} value={chapter}>{chapter}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Select Difficulty</label>
+                <select
+                  value={selectedDifficulty}
+                  onChange={(e) => setSelectedDifficulty(e.target.value)}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                  {DIFFICULTIES.map((difficulty) => (
+                    <option key={difficulty} value={difficulty}>{difficulty}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={startQuiz}
+              className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+            >
+              <Play className="w-5 h-5 fill-current" />
+              Generate AI Quiz
+            </button>
+          </section>
+
+          <section className="space-y-4">
+            <h2 className="text-xl font-bold text-gray-900">Recent Activity</h2>
+            <QuizHistory results={results} />
+          </section>
+        </div>
+
+        <div className="space-y-6">
+          <section className="bg-gradient-to-br from-indigo-600 to-violet-700 p-6 rounded-2xl text-white space-y-4">
+            <h3 className="font-bold text-lg">AI Study Tip</h3>
+            <p className="text-indigo-100 text-sm leading-relaxed">
+              Focus on "Quadratic Equations" this week. Students who practice this chapter daily see a 20% improvement in their Geometry scores.
+            </p>
+            <button className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-all">
+              View Study Plan
+            </button>
+          </section>
+
+          <section className="bg-white p-6 rounded-2xl border border-gray-100 space-y-4">
+            <h3 className="font-bold text-gray-900">Syllabus Progress</h3>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-500">Algebra</span>
+                  <span className="font-bold text-gray-900">75%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 w-3/4" />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-500">Geometry</span>
+                  <span className="font-bold text-gray-900">40%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 w-2/5" />
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
